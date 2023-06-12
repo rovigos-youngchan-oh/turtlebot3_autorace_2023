@@ -1,4 +1,5 @@
 # turtlebot3_autorace_2023
+- ROBOTIS autorace 설명 [url](https://emanual.robotis.com/docs/en/platform/turtlebot3/autonomous_driving/#autonomous-driving)
 - ROBOTIS [turtlebot3_simulations](https://github.com/ROBOTIS-GIT/turtlebot3_simulations) 사용 (해당 패키지 설치 필수)
 - ROBOTIS [turtlebot3_autorace_2020](https://github.com/ROBOTIS-GIT/turtlebot3_autorace_2020) 응용
 
@@ -18,7 +19,7 @@ $ roslaunch turtlebot3_autorace_core turtlebot3_autorace_core.launch
 $ roslaunch turtlebot3_autorace_camera intrinsic_camera_calibration.launch
 $ roslaunch turtlebot3_autorace_camera extrinsic_camera_calibration.launch
 $ roslaunch turtlebot3_autorace_dectect detect_modified.launch
-$ roslaunch turtlebot3_autorace_driving turtlebot3_autorace_control_lane.launch
+$ roslaunch turtlebot3_autorace_driving turtlebot3_autorace_control_modified.launch
 ```
 
 ## 기존 turtlebot3_autorace_2023과의 변경사항

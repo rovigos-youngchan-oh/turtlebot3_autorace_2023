@@ -1,0 +1,259 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+################################################################################
+# Copyright 2018 ROBOTIS CO., LTD.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+################################################################################
+
+# Author: Leon Jung, Gilbert, Ashe Kim
+ 
+import rospy
+import numpy as np
+import math
+from datetime import datetime
+from std_msgs.msg import Int16
+from std_msgs.msg import Float64
+from std_msgs.msg import Float64MultiArray
+from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
+from tf.transformations import euler_from_quaternion
+
+class ControlLane():
+    def __init__(self):
+        self.sub_lane = rospy.Subscriber('/control/lane', Float64, self.cbFollowLane, queue_size = 1)
+        self.sub_max_vel = rospy.Subscriber('/control/max_vel', Float64, self.cbGetMaxVel, queue_size = 1)
+        self.pub_cmd_vel = rospy.Publisher('/control/cmd_vel', Twist, queue_size = 1)
+        self.sub_odom = rospy.Subscriber('/odom', Odometry, self.cbOdom, queue_size=1)
+        self.pub_dataset = rospy.Publisher('/dataset', Float64MultiArray, queue_size = 10)
+        self.sub_gain = rospy.Subscriber('/control_gain', Float64MultiArray, self.cbGain, queue_size = 1)
+        self.pub_nodeId = rospy.Publisher('/control/nodeId', Int16, queue_size = 1)
+
+        self.lastError = 0
+        self.MAX_VEL = 0.15
+        self.MAX_AVEL = 2.00
+        self.Kp = 0.0025
+        self.Kd = 0.007
+
+        self.region_num = 0 # type of region
+        self.region_id = 0 # id/name of region
+        self.region_num_last = 0
+
+        self.poseX = 0
+        self.poseY = 0
+        self.poseZ = 0
+
+        self.eulerR = 0
+        self.eulerP = 0
+        self.eulerY = 0
+        self.lastEulerY = 0
+
+        self.node_num = 0
+        self.node_pose=[[-1.0897, -1.1705, -1.0918],[-0.6, -1.747, 0],[0.8, -1.747, 0]]
+
+        now = datetime.now()
+        now_timestamp = float(now.timestamp())
+        self.initTime = now_timestamp
+        self.costTime = 0
+        self.costControl = 0
+        self.dataset = Float64MultiArray()
+        self.dataset.data = [0, 0, 0, 0, 0, 0] # id MAX_Vel Pgain Dgain total_time cost
+
+        rospy.on_shutdown(self.fnShutDown)
+
+    def cbGetMaxVel(self, max_vel_msg):
+        self.MAX_VEL = max_vel_msg.data
+
+    def cbFollowLane(self, desired_center):
+        funcTime = 0
+        center = desired_center.data
+        error_ratio = 0.001
+        error = center - 500
+
+        Kp = self.Kp #0.0025
+        Kd = self.Kd #0.007
+        angular_z = Kp * error + Kd * (error - self.lastError)
+        self.lastError = error
+
+        if self.region_num != 4:
+            now = datetime.now()
+            now_timestamp = float(now.timestamp())
+            funcTime = now_timestamp - self.initTime
+
+            twist = Twist()
+            # twist.linear.x = 0.05
+            twist.linear.x = min(self.MAX_VEL * ((1 - abs(error) / 500) ** 2.2), 0.05)
+            twist.linear.y = 0
+            twist.linear.z = 0
+            twist.angular.x = 0
+            twist.angular.y = 0
+            twist.angular.z = -max(angular_z, -2.0) if angular_z < 0 else -min(angular_z, 2.0)
+            self.pub_cmd_vel.publish(twist)
+            self.costTime += funcTime
+            self.costControl +=  5*(error*error/500/500) + twist.angular.z*twist.angular.z #10*funcTime*funcTime + 5*error*error
+            self.initTime=now_timestamp
+        #else:
+            #self.agvSMC(desired_x, desired_y, desired_a, 1)
+            #self.agvSMC(error_ratio*500/(1+8*abs(math.atan(error/500))), -error, math.atan(error/500), 1)
+
+    def cbOdom(self, odom_msg):
+        self.poseX = odom_msg.pose.pose.position.x
+        self.poseY = odom_msg.pose.pose.position.y
+        self.poseZ = odom_msg.pose.pose.position.z
+
+        desired_x=self.node_pose[self.node_num][0]
+        desired_y=self.node_pose[self.node_num][1]
+        desired_a=self.node_pose[self.node_num][2]
+
+        (self.eulerR, self.eulerP, self.eulerY) = euler_from_quaternion([odom_msg.pose.pose.orientation.x, odom_msg.pose.pose.orientation.y, odom_msg.pose.pose.orientation.z, odom_msg.pose.pose.orientation.w ])
+
+        if odom_msg.pose.pose.position.x > 0.1 and odom_msg.pose.pose.position.x <1.876923 and \
+           odom_msg.pose.pose.position.y <-0.112903 and odom_msg.pose.pose.position.y >-1.362903:
+            self.region_num = 2
+        elif odom_msg.pose.pose.position.x >-2 and odom_msg.pose.pose.position.x <-0.984615 and \
+           odom_msg.pose.pose.position.y <0.935484 and odom_msg.pose.pose.position.y >0.129032:
+            self.region_num = 2
+        elif odom_msg.pose.pose.position.x >-2 and odom_msg.pose.pose.position.x <-1.407692 and \
+           odom_msg.pose.pose.position.y <2 and odom_msg.pose.pose.position.y >1.120968:
+            self.region_num = 1
+        elif odom_msg.pose.pose.position.x >-0.538462 and odom_msg.pose.pose.position.x <-0.092308 and \
+           odom_msg.pose.pose.position.y <1.435484 and odom_msg.pose.pose.position.y >0.975806:
+            self.region_num = 1
+        elif odom_msg.pose.pose.position.x >-0.5 and odom_msg.pose.pose.position.x <-0.123077 and \
+           odom_msg.pose.pose.position.y <0.508065 and odom_msg.pose.pose.position.y >0.120968:
+            self.region_num = 1
+        elif odom_msg.pose.pose.position.x >0.1 and odom_msg.pose.pose.position.x <0.561538 and \
+           odom_msg.pose.pose.position.y <0.387097 and odom_msg.pose.pose.position.y >-0.016129:
+            self.region_num = 1
+        elif odom_msg.pose.pose.position.x >1.1215385 and odom_msg.pose.pose.position.x <2 and \
+           odom_msg.pose.pose.position.y <2 and odom_msg.pose.pose.position.y >1.435484:
+            self.region_num = 1
+        elif odom_msg.pose.pose.position.x >1.392308 and odom_msg.pose.pose.position.x <2 and \
+           odom_msg.pose.pose.position.y <0.387097 and odom_msg.pose.pose.position.y >-1.467742:
+            self.region_num = 1
+        elif odom_msg.pose.pose.position.x >-1.253846 and odom_msg.pose.pose.position.x <-0.238462 and \
+           odom_msg.pose.pose.position.y <2 and odom_msg.pose.pose.position.y >1.467742:
+            self.region_num = 3
+        elif odom_msg.pose.pose.position.x >-2 and odom_msg.pose.pose.position.x <0 and \
+           odom_msg.pose.pose.position.y <0.03 and odom_msg.pose.pose.position.y >-1.967742:
+            self.region_num = 4
+        else:
+            self.region_num = 0
+
+        if  self.region_num == 4:
+            self.agvSMC(desired_x, desired_y, desired_a, 1)
+        else:
+            self.node_num = 0
+
+        self.pub_nodeId.publish(self.node_num)
+
+        if self.region_num!=self.region_num_last and self.region_num_last!=4:
+            self.dataset.data = [self.region_num_last, self.MAX_VEL, self.Kp, self.Kd, self.costTime, self.costControl] # id MaxVel Pgain Dgain total_time cost
+            self.pub_dataset.publish(self.dataset) #(Float64MultiArray(self.dataset))
+            self.costTime = 0
+            self.costControl = 0
+
+        self.region_num_last = self.region_num # when region is changed
+
+    def agvSMC(self, des_x_ , des_y_, des_a_, mode):
+        s=[0, 0]
+        u_input=[0, 0]
+
+        if mode == 1:
+            c_ratio=[3.0, 1.0] #[1, 1]
+            k_ratio=[1, 10] #[0.1, 0.8]
+            vel_input_ratio = 1
+            avel_input_ratio = 1
+            error_x_ = math.cos(self.eulerY)*(des_x_-self.poseX)+math.sin(self.eulerY)*(des_y_-self.poseY)
+            error_y_ = -math.sin(self.eulerY)*(des_x_-self.poseX)+math.cos(self.eulerY)*(des_y_-self.poseY)
+            error_a_ = des_a_-self.eulerY
+        else:
+            c_ratio=[0.1, 1]
+            k_ratio=[30, 0.5]
+            vel_input_ratio = 0.1
+            avel_input_ratio = 2
+            error_x_ = des_x_
+            error_y_ = des_y_
+            error_a_ = des_a_
+
+        s[0] = -c_ratio[0]*error_x_
+        s[1] = -c_ratio[1]*error_y_
+        u_input[0] = vel_input_ratio*(-k_ratio[0]*np.tanh(s[0]))
+#        u_input[0] = vel_input_ratio*(self.MAX_VEL/(1+abs(error_a_))-k_ratio[0]*np.tanh(s[0]))
+        u_input[1] = vel_input_ratio*(-0.1*error_a_-k_ratio[1]*np.tanh(s[1]))
+        des_avel = -math.atan(u_input[1]/u_input[0])
+
+        if u_input[0]>=0:
+            des_vel=math.sqrt(math.pow(u_input[0],2)+math.pow(u_input[1],2))
+        else:
+            des_vel=-math.sqrt(math.pow(u_input[0],2)+math.pow(u_input[1],2))
+
+
+        des_avel*=avel_input_ratio
+
+        twist = Twist()
+        twist.linear.x = max(min(des_vel, self.MAX_VEL), 0.01)
+        twist.linear.y = 0
+        twist.linear.z = 0
+        twist.angular.x = 0
+        twist.angular.y = 0
+        twist.angular.z = -max(des_avel, -self.MAX_AVEL) if des_avel < 0 else -min(des_avel, self.MAX_AVEL)
+        self.pub_cmd_vel.publish(twist)
+
+        if self.node_num == 0 and self.region_num == 4 and abs(error_x_)< 0.05 and abs(error_y_)< 0.05:
+            self.node_num = 1
+        elif self.node_num == 1 and self.region_num == 4 and abs(error_x_)< 0.05 and abs(error_y_)< 0.05:
+            self.node_num = 2
+
+        '''
+        rospy.loginfo('AGV poseX : %f'%self.poseX)
+        rospy.loginfo('AGV poseY : %f'%self.poseY)
+        rospy.loginfo('target poseX : %f'%self.node_pose[self.node_num][0])
+        rospy.loginfo('target poseY : %f'%self.node_pose[self.node_num][1])
+        rospy.loginfo('node num : %d\n'%self.node_num)
+        
+        rospy.loginfo('ex error : %f'%error_x_)
+        rospy.loginfo('ey error : %f'%error_y_)
+        rospy.loginfo('ea error : %f'%error_a_)
+        rospy.loginfo('v input1 : %f'%u_input[0])
+        rospy.loginfo('v input2 : %f'%u_input[1])
+        rospy.loginfo('v input : %f'%des_vel)
+        rospy.loginfo('a input : %f'%des_avel)
+        rospy.loginfo('v real : %f'%twist.linear.x)
+        rospy.loginfo('a real : %f\n'%twist.angular.z)
+        '''
+
+    def cbGain(self, gain_msg):
+        self.Kp = gain_msg[0]
+        self.Kd = gain_msg[1]
+
+    def fnShutDown(self):
+        rospy.loginfo("Shutting down. cmd_vel will be 0")
+
+        twist = Twist()
+        twist.linear.x = 0
+        twist.linear.y = 0
+        twist.linear.z = 0
+        twist.angular.x = 0
+        twist.angular.y = 0
+        twist.angular.z = 0
+        self.pub_cmd_vel.publish(twist)
+
+    def main(self):
+        rospy.spin()
+
+if __name__ == '__main__':
+    rospy.init_node('control_lane')
+    node = ControlLane()
+    node.main()

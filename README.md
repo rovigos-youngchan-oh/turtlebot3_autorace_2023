@@ -18,7 +18,7 @@ $ roslaunch turtlebot3_autorace_core turtlebot3_autorace_2023.launch
 $ roslaunch turtlebot3_autorace_core turtlebot3_autorace_core.launch
 $ roslaunch turtlebot3_autorace_camera intrinsic_camera_calibration.launch
 $ roslaunch turtlebot3_autorace_camera extrinsic_camera_calibration.launch
-$ roslaunch turtlebot3_autorace_dectect detect_modified.launch
+$ roslaunch turtlebot3_autorace_detect detect_modified.launch
 $ roslaunch turtlebot3_autorace_driving turtlebot3_autorace_control_modified.launch
 ```
 

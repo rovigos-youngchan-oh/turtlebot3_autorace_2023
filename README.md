@@ -1,5 +1,5 @@
 # turtlebot3_autorace_2023
-- ROBOTIS [turtlebot3_simulations](https://github.com/ROBOTIS-GIT/turtlebot3_simulations) 사용
+- ROBOTIS [turtlebot3_simulations](https://github.com/ROBOTIS-GIT/turtlebot3_simulations) 사용 (해당 패키지 설치 필수)
 - ROBOTIS [turtlebot3_autorace_2020](https://github.com/ROBOTIS-GIT/turtlebot3_autorace_2020) 응용
 
 ## export 항목
